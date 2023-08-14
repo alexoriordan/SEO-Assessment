@@ -1,0 +1,301 @@
+---
+title: "Understanding Service Request Response Time - Focus on the Urban Mobility Directorate of the City of Cape Town"
+author: "Alexander O'Riordan"
+output: pdf_document
+
+numbersections: TRUE             
+fontsize: 11pt                  
+linestretch: 1.1                
+
+abstract: |
+  This report contains the results of an analysis applied to Service Request date recorded in the early months of 2022 in the City of Cape Town. Each Section will answer one of the proposed questions in line with the assessment provided. I have made use of the R programming language and Rstudio with RMarkdown to complete this assessment. This ensures that the analysis can be easily replicated and adapted to new data or alternative approaches to analysis. I have deviated at timed from the exact questions, but I believe that this effort sufficiently demonstrates my ability. 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Package Install and Loading ====
+#install.packages("tinytex")
+#tinytex::install_tinytex()
+#install.packages("tidyverse")
+#install.packages("gridExtra")
+#install.packages("ggrepel")
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(gridExtra)
+library(ggrepel)
+```
+
+<!-- We will start with the first question of analysis. -->
+# Question 1: In which 3 suburbs should the Urban Mobility directorate concentrate their infrastructure improvement efforts?
+
+From the figure below, it is immediately evident that the three suburbs with the largest number of service requests during the period under consideration are: Milnerton, Marconi Beam, and Table View. Furthermore, the nature of service requests in these suburbs supports their selection as those requiring concentration of infrastructure efforts. Non-functioning traffic lights were the most commonly reported issue in all three suburbs. However, it remains valuable to analyse additional dimensions; for example, time taken to respond to a service request is another valuable measure. We will look into this in more depth in a later section.
+
+```{r question 1.1, echo=FALSE}
+
+# data import //
+url <- "https://cct-ds-code-challenge-input-data.s3.af-south-1.amazonaws.com/sr_hex_truncated.csv"
+data1 <- read.csv(url)
+data <- as_tibble(data1)
+data2 <- data %>% 
+  filter(directorate == "URBAN MOBILITY")
+
+# Counting the nuymber of service requests per code for Urban Mob //
+q1.1 <- data %>%
+  select(directorate, official_suburb) %>% 
+  filter(directorate == "URBAN MOBILITY", !(official_suburb == "")) %>% 
+  count(official_suburb) %>%  
+  filter(n > 9) %>% 
+  arrange(n)
+
+# Bar chart of the number of requests per code for urban Mob // chart 1 on page 1
+plot_q1.2 <- ggplot(data=q1.1, aes(x=n, y=official_suburb)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label = n),color = "white",                   
+            position = position_dodge2(width = 0.5),
+            show.legend = FALSE, hjust = 1.2, size = 3)+
+  labs(title = "1: Service Requests by Suburb and Code Group", 
+       x = "Number of Service Requests", 
+       y = "Suburb") 
+```
+
+```{r Figure1, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 3, fig.width = 6}
+print(plot_q1.2) # printing chart 1 - bar chart
+```
+
+# Question 2.1: Focusing on service request response time for the Urban Mobility directorate
+```{r question 2.1, echo=FALSE}
+
+# Converting the date|time character to time-stamp format //
+# Calculating the time difference between service request and response //
+q2.1 <- data %>% 
+  select(directorate, creation_timestamp, completion_timestamp, official_suburb, code) %>% 
+  filter(directorate == "URBAN MOBILITY") %>% 
+  mutate(x = as.POSIXlt(substr(creation_timestamp, 1, 19), format = "%Y-%m-%d %H:%M:%S")) %>% 
+  mutate(y = as.POSIXlt(substr(completion_timestamp, 1, 19), format = "%Y-%m-%d %H:%M:%S")) %>%
+  mutate(time_diff_hours = as.numeric(difftime(y, x, units = "hours"))) %>% 
+  mutate(time_diff_days = as.numeric(difftime(y, x, units = "days"))) %>% 
+  na.omit(time_diff_days)
+
+# Calculating the average Service Request response time per suburb //
+q2.1_suburb <- q2.1 %>% 
+  select(official_suburb, time_diff_hours) %>% 
+  na.omit(official_suburb) %>% 
+  group_by(official_suburb) %>% 
+  summarise('Average_time' = mean(time_diff_hours), 
+            'Request_number' = n()) %>% 
+  filter(Request_number < 400) # remove random large number that appears!
+
+# Calculating the average Service Request response time per code //
+q2.1_code <- q2.1 %>% 
+  select(code, time_diff_hours) %>% 
+  na.omit(code) %>% 
+  group_by(code) %>% 
+  summarise('Average_time' = mean(time_diff_hours), 
+            'Request_number' = n()) %>% 
+  filter(Request_number < 400) # remove random large number that appears!
+
+# Median = 1.85 days or 44.3 hours
+# median(q2.1$time_diff_days)
+# mean(q2.1$time_diff_days)
+# median(q2.1$time_diff_hours)
+# mean(q2.1$time_diff_hours)
+
+# 80th Percentile = 214.4 days or 5145.43 hours
+# quantile(q2.1$time_diff_days, probs = c(0.20, 0.50, 0.80))
+# quantile(q2.1$time_diff_hours, probs = c(0.20, 0.50, 0.80))
+
+# We now look at Question 2.2, the three most problematic suburbs for the city //
+q2.2 <- q2.1 %>% 
+  filter(official_suburb %in% c("MILNERTON", "MARCONI BEAM", "TABLE VIEW"))
+
+# # Median = 0.17 days or 4.1 hours
+# median(q2.2$time_diff_days)
+# mean(q2.2$time_diff_days)
+# median(q2.2$time_diff_hours)
+# mean(q2.2$time_diff_hours)
+# 
+# # 80th Percentile = 0.88 days or 21.1 hours
+# quantile(q2.2$time_diff_days, probs = c(0.20, 0.50, 0.80))
+# quantile(q2.2$time_diff_hours, probs = c(0.20, 0.50, 0.80))
+
+# Wilcox test: are the two series from identical populations? //
+ wilcox <- wilcox.test(q2.2$time_diff_days, q2.1$time_diff_days)
+ # wilcox$p.value
+
+```
+
+The median time in days for the Urban Mobility directorate to respond to service requests is `r median(q2.1$time_diff_days)` while the 80th percentile of the response time distribution is `r quantile(q2.1$time_diff_days, probs = 0.80)`. These same measure in terms of hours are: `r median(q2.1$time_diff_hours)` and `r quantile(q2.1$time_diff_hours, probs = 0.80)` respectively. The mean time of response for the Urban Mobility directorate is `r mean(q2.1$time_diff_days)` days. Comparing the mean, median and 80th percentile values for the city as a whole to those of the three previously-mentioned suburbs with the most service requests is a useful endeavour. When considering only these three suburbs as a group, the mean time of response in days declines to `r mean(q2.2$time_diff_days)` while the median and 80th percentile measures are `r median(q2.2$time_diff_days)` and `r quantile(q2.2$time_diff_days, probs = 0.80)` respectively. 
+
+Based on these numebrs alone, it appears evident that there is a significant difference between the time taken to respond to service requests in the three suburbs compared to the city as a whole. The difference in response times between these three suburbs and the city as a whole can also be demonstrated by usin a statistical test: the Wilcox test for distribution independence. The result of `r  wilcox$p.value` indicates that we can reject the hypothesis that the distributions are drawn from idenitical populations. Although there is a large difference in median, the significant difference in the 80th percentile is evidence that is the city as a whole, extremely lengthy respose times are not un-common. The following chart provides a useful visual representation of these differences. 
+
+```{r question 2.2, echo=FALSE}
+
+# Creating line chart showing the average time taken to respond to requests // chart 2 page 2
+# This chart focuses on only the three suburbs: Milnerton, Marconi Bean & Tableview //
+p2 = ggplot(data = q2.2, aes(x=time_diff_days, color=official_suburb)) +
+  geom_density(colour=NA,alpha=0.2) + 
+  geom_line(stat="density") + 
+  xlab("Completion time in days") +
+  xlim(1,100) +
+  theme(legend.position=c(0.9,0.9)) +
+  ylab("Frequency of requests complete") +
+  ggtitle("Response time in Milnerton, Marconi Bean & Tableview\n") +
+  theme(plot.title = element_text(lineheight=.8, face="plain"))
+
+# Creating line chart showing the average time taken to respond to requests // chart 2 page 2
+# This chart focuses on the city as a whole, including the three above-mentioned suburbs //
+p1 = ggplot(data = q2.1, aes(x=time_diff_days)) + 
+  geom_density(colour=NA,alpha=0.2) + 
+  geom_line(stat="density") + 
+  xlab("Completion time in days") +
+  xlim(1,100) +
+  ylab("Frequency of requests completed")  + 
+  ggtitle("2: Response time in the city as a whole\n") +
+  theme(plot.title = element_text(lineheight=.8, face="plain"))
+
+#grid.arrange(p1,p2,nrow=2)
+```
+
+```{r Figure2, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 4.8, fig.width = 7}
+grid.arrange(p1,p2,nrow=2) # Chart 2 on page 2
+```
+
+# Question 3: Capturing key features of the data. 
+
+In this section, I deviate somewhat from the question format and provide several interesting insights. Thus, I combine questions 3 and 4 to ensure that all useful information is contained within this single pdf document. Note that the use of Rmarkdown, in-line coding and data import links ensures that this document is easily reproduceable and can be updated to ensure up-to-date analysis. 
+
+Givin the findings in section 1 and 2, it evident that the Urban Mobility Unit is facing two main pain points: large numbers of service requests and slow response times to these request. However, it is not necessarily the case that the suburbs with more frequent service requests are those with slow response times. In most cases, a suburb with face one or the other (or neither) problem. A good starting point to understand these two pain-points is provided by the following two scatter plots. 
+
+```{r question 3.1, echo=FALSE}
+# average time to solve issues by suburb //
+q2.1_suburb <- q2.1 %>% 
+  select(official_suburb, time_diff_hours) %>% 
+  na.omit(official_suburb) %>% 
+  group_by(official_suburb) %>% 
+  summarise('Average_time' = mean(time_diff_hours), 
+            'Request_number' = n()) %>% 
+  filter(Request_number < 400)
+
+# creating tibble to be used for scatter plot: requests vs time per suburb //
+df_suburb <- q2.1_suburb %>% 
+  rename("label" = official_suburb) %>% 
+  mutate(Time = log(Average_time)) %>% 
+  mutate(Requests = log(Request_number)) %>% 
+  select(label, Time, Requests)
+
+# creating scatter plot: requests vs time per suburb // chart 3 page 3
+scatter_suburb <- ggplot(df_suburb, aes(x= Time, y= Requests, label=label))+ 
+  geom_point() + 
+  ggtitle("3: Number of Requests and Average Response Times by Suburb") +
+  geom_label_repel(aes(label = label),
+                   box.padding   = 0.35, 
+                   max.overlaps = 20,
+                   point.padding = 0.5,
+                   segment.color = 'grey50')
+
+# average time to solve issues by code //
+q2.1_code <- q2.1 %>% 
+  select(code, time_diff_hours) %>% 
+  na.omit(code) %>% 
+  group_by(code) %>% 
+  summarise('Average_time' = mean(time_diff_hours), 
+            'Request_number' = n())
+
+# creating tibble to be used for scatter plot: requests vs time per code //
+df_code <- q2.1_code %>% 
+  rename("label" = code) %>% 
+  mutate(Time = Average_time) %>% 
+  mutate(Requests = Request_number) %>% 
+  select(label, Time, Requests)
+
+# scatter plot: requests vs time per code // chart 4 page 4
+scatter_code <- ggplot(df_code, aes(x= Time, y= Requests, label=label))+ 
+  geom_point() + 
+  ggtitle("4: Number of Requests and Average Response Times by Service type") +
+  geom_label_repel(aes(label = label),
+                   box.padding   = 0.35, 
+                   max.overlaps = 5,
+                   point.padding = 0.5,
+                   segment.color = 'grey50')
+```
+
+```{r Figure3, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 4, fig.width = 6}
+grid.arrange(scatter_suburb,ncol=1) #chart 3 page 3
+```
+
+Note that the above chart is using a log scale, thus the exact position of the scatter points does not provide useful information. What is important rather it the relative position of each point.The chart below using a normal scale, not log. Therefore, in this case both the exact and relative position of the scatter points provides useful information. 
+
+Turning our attention again to the above chart, this scatter plot demonstrates the frequency with which service requests are made and the average time taken to respond to these requests. Suburbs that are plotted in the top right section of the chart are those with the worst performance in terms of both number of requests and response time. Suburbs of particular concern include: Parow East, Wetton, Phillipi, Cape Town City Center, Strand and Rondebosch. Here it is also worth taking note of the population density of these regions, which will greatly influence the number of service requests being made. Suburbs such as Milnerton, Macconi Beam and Parklands perform poorly on the number of service requests. However, response times in these suburbs is good on average. Suburbs such as Constantia and Sandown perform well in both metrics, with few service requests and a quick average response time. 
+
+The below chart is similar to that above, it plots the total number of requests and the average response time per code of service request. From the chart is is evident that the most common pain point if potholes and road defects. This service issue is very commonly reported and taken on average relatively long to respond to. Other common issues are traffic congestion and traffic light issues. There however tend to experience relatively rapid response times. Conversely, issues with manhole covers and tree removal requests are uncommon but generally experience very slow response times. 
+
+```{r Figure4, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 4, fig.width = 6}
+grid.arrange(scatter_code,ncol=1) # chart 4 page 4
+```
+
+```{r question 3.2, echo=FALSE, message = FALSE, warning = FALSE}
+# Question 4
+# creating a usable tibble, this tibble is ideal for deep analysis and dashboard creation //
+q4.1 <- data %>% 
+  select(directorate, creation_timestamp, completion_timestamp, official_suburb, department, branch, code_group, code) %>% 
+  filter(directorate == "URBAN MOBILITY") %>% 
+  mutate(x = as.POSIXlt(substr(creation_timestamp, 1, 19), format = "%Y-%m-%d %H:%M:%S")) %>% 
+  mutate(y = as.POSIXlt(substr(completion_timestamp, 1, 19), format = "%Y-%m-%d %H:%M:%S")) %>%
+  mutate(time_diff_hours = as.numeric(difftime(y, x, units = "hours"))) %>% 
+  mutate(time_diff_days = as.numeric(difftime(y, x, units = "days"))) %>% 
+  mutate(month = substr(creation_timestamp, 7, 7)) %>% # add a month element here.
+  na.omit(time_diff_days) # we do lose obs this way, but it improves our overall analysis.
+
+# Requests per month //
+q41 <- q4.1 %>%
+  select(month, code) %>%
+  group_by(month) %>%
+  count(code) %>%
+  filter(n>10)
+
+# bar chart of requests per month // chart 5 page 5
+Req_per_month_plot <- ggplot(data=q41, aes(x=code, y=n, fill=month)) +
+  geom_bar(stat="identity", position=position_dodge())+
+  scale_fill_brewer(palette="Paired")+
+  ggtitle("5: Requests by Code per Month") +
+  labs(x = "Code", y = "Number of Service Requests") +
+  coord_flip() 
+
+# Time to resolve per month //
+q42 <- q4.1 %>%
+  select(month, time_diff_days, code) %>%
+  group_by(month, code) %>%
+  summarise('Average_time' = mean(time_diff_days)) %>%
+  filter(Average_time > 8)
+
+# Bar chart showing the average time to respond to request code // chart 6 page 5
+Resp_time_month_plot <- ggplot(data=q42, aes(x=code, y=Average_time, fill=month)) +
+  geom_bar(stat="identity", position=position_dodge())+
+  scale_fill_brewer(palette="Paired")+
+  ggtitle("6: Response time by Code per Month") +
+  labs(x = "Code", y = "Response Time in Days") +
+  coord_flip() 
+```
+
+Although the value of looking at the time component is here limited owing to the short time-frame of our truncated sample, the demonstration of a time-based approach does reveal possible ways to extract more information from our data. The below chart shows the number of service requests made per code per month. In this way, we can identify any trends over time in the type of service requests being made. This knowledge will enable us to better allocate city resources to support the Urban Mobility directorate. Below, chart 5 outlines the number of service requests per month. It further adds to earlier findings that the most common issues relate to faulty traffic lights and road surface damage. One useful finding from this chart is that these issues are consistently the among the most commonly reported service issues. This finding ensures that we can largely remove concerns for monthly idiosyncrasies such as bad weather or school holidays that may impact on road conditions.
+
+```{r Figure5, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 3.5, fig.width = 6}
+grid.arrange(Req_per_month_plot,ncol=1) # chart 5 page 5
+```
+
+The below chart shows the average response time in days to select, most frequently made, service requests. As with the chart above, the time element including in this chart support interpretation of results in the absence of monthly or shock events. From the chart, it is evident that service requests such as potholes, blocked drains and faulty manhole covers tend to require the most significant amount of time to resolve. 
+
+```{r Figure6, echo = FALSE, warning =  FALSE, fig.align = 'center', fig.ext = 'png', fig.height = 3.5, fig.width = 6}
+grid.arrange(Resp_time_month_plot,ncol=1) # chart 6 page 5
+```
+
+# Key Findings
+
+- Milnerton, Table View, Parklands, Marcomi Beam and Brackenfell are the suburbs that experience the largest number of service requests. However, these suburbs have relatively short response times. 
+- Parow East, Wetton, Phillipi, Cape Town City Center, Strand and Rondebosch are of particular concern as they are suburbs with relatively high service requests and relatively slow response times. 
+- Of most concern for the City of Cape Town is faulty traffic lights, congestion at intersections and damage to the road surface. 
+- Potholes in particular are a significant issue in that they are commonly reported and are the service request with the longest response time. 
+- Actions would ideally focus on regions in which large numbers if requests are made, as this indicates frequent issues with service delivery. Additionally, codes for which response times are very slow should be prioritised. This includes road surface damage in particular. This is made even more urgent by the facet that road surface damage is a major safety concern.
